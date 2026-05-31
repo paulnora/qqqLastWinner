@@ -184,6 +184,28 @@ class ParametricStrategy(BaseStrategy):
         self._ohlcv_data = None
         self.P = load_params()
 
+    def _load_data(self) -> None:
+        """Override base: load from autoresearch OHLCV (up-to-date) instead of
+        data/QQQ.csv. Mirrors ExperimentalStrategy._load_data so refresh on the
+        frontend (which writes autoresearch/qqq_ohlcv.csv) actually feeds every
+        non-Iter31 strategy too."""
+        ohlcv = _load_ohlcv()
+        col_map = {}
+        if "close_adj" in ohlcv.columns:
+            col_map["close_adj"] = "close"
+        if "open_adj" in ohlcv.columns:
+            col_map["open_adj"] = "open"
+        if "high_adj" in ohlcv.columns:
+            col_map["high_adj"] = "high"
+        if "low_adj" in ohlcv.columns:
+            col_map["low_adj"] = "low"
+        self._data = ohlcv.rename(columns=col_map).copy()
+        for col in ["open", "close", "high", "low"]:
+            if col in self._data.columns and self._data[col].dtype == "object":
+                self._data[col] = pd.to_numeric(
+                    self._data[col].astype(str).str.replace(",", ""), errors="coerce"
+                )
+
     def _get_ohlcv(self):
         if self._ohlcv_data is None:
             self._ohlcv_data = _load_ohlcv()

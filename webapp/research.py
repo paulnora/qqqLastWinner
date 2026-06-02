@@ -9,9 +9,11 @@ Aggregates state from:
   - monitoring/latest.md, monitoring/history.jsonl (monitor)
 """
 import os
+import re
 import json
 import subprocess
 import sys
+from datetime import datetime
 from collections import Counter
 from typing import Optional
 
@@ -45,6 +47,36 @@ def _is_alive(pid: int) -> bool:
         return True
     except Exception:
         return False
+
+
+_LABEL_TS_RE = re.compile(r"_(\d{8})T(\d{6})$")
+
+
+def _age_from_label(label: str) -> dict:
+    """Parse a champion label like 'score_p0_20260510T210014' into:
+    {'promoted_at': '2026-05-10 21:00', 'age_days': 22, 'bucket': 'fresh'|'recent'|'stale'}.
+    Returns empty dict if label doesn't match the expected suffix pattern."""
+    if not label:
+        return {}
+    m = _LABEL_TS_RE.search(label)
+    if not m:
+        return {}
+    try:
+        ts = datetime.strptime(m.group(1) + m.group(2), "%Y%m%d%H%M%S")
+    except ValueError:
+        return {}
+    age = (datetime.now() - ts).total_seconds() / 86400
+    if age < 7:
+        bucket = "fresh"
+    elif age < 30:
+        bucket = "recent"
+    else:
+        bucket = "stale"
+    return {
+        "promoted_at": ts.strftime("%Y-%m-%d %H:%M"),
+        "age_days": int(age),
+        "bucket": bucket,
+    }
 
 
 def _load_jsonl(path: str) -> list:
@@ -115,6 +147,7 @@ def harness_status() -> dict:
                 c["_active_subs"] = active
                 c["_diffs"] = diffs
                 c["_n_diffs"] = len(diffs)
+                c["_age"] = _age_from_label(c.get("label", ""))
                 # Headline metric — what this champion is actually being judged on
                 focus = c.get("focus", "score")
                 m = c.get("metrics", {})

@@ -41,6 +41,16 @@
       <span class="status-label">Promotions</span>
       <span class="status-value">{{ data.harness.promotions }}</span>
     </div>
+    {% set ages = data.harness.champions | map(attribute='_age') | selectattr('age_days', 'defined') | list %}
+    {% if ages %}
+    {% set newest = ages | map(attribute='age_days') | min %}
+    {% set oldest = ages | map(attribute='age_days') | max %}
+    <div class="status-item">
+      <span class="status-label">Newest champ</span>
+      <span class="status-value {% if newest < 7 %}alive{% elif newest >= 30 %}dead{% endif %}">{{ newest }}d ago</span>
+      <span class="status-detail">oldest {{ oldest }}d</span>
+    </div>
+    {% endif %}
     <div class="status-item">
       <span class="status-label">Tested combos</span>
       <span class="status-value">{{ "{:,}".format(data.harness.tested_combos) }}</span>
@@ -68,6 +78,11 @@
         <div class="champion-header">
           <span class="champion-idx">#{{ loop.index0 }}</span>
           <span class="champion-focus">{{ c.focus }}</span>
+          {% if c._age.age_days is defined %}
+          <span class="age-pill {{ c._age.bucket }}" title="Promoted {{ c._age.promoted_at }}">
+            {% if c._age.age_days == 0 %}today{% else %}{{ c._age.age_days }}d ago{% endif %}
+          </span>
+          {% endif %}
         </div>
 
         <div class="champion-headline">
@@ -317,9 +332,17 @@
       const el = document.getElementById('live-indicator');
       if (!el) return;
       const t = new Date().toLocaleTimeString('en-US', {hour12: false});
-      const iterDelta = live.iters - initialState.iters;
-      el.innerHTML = `<span class="live-dot"></span> Auto-refresh on · last check ${t}` +
-                     (iterDelta > 0 ? ` · +${iterDelta.toLocaleString()} iters since load` : '');
+      const iterDelta  = live.iters - initialState.iters;
+      const promoDelta = live.promotions - initialState.promotions;
+      const advDelta   = live.adv_cycles - initialState.adv_cycles;
+      const hypDelta   = live.hyp_cycles - initialState.hyp_cycles;
+      const bits = [];
+      if (iterDelta  > 0) bits.push(`+${iterDelta.toLocaleString()} iters`);
+      if (promoDelta > 0) bits.push(`<strong>+${promoDelta} promo</strong>`);
+      if (advDelta   > 0) bits.push(`+${advDelta} adv`);
+      if (hypDelta   > 0) bits.push(`+${hypDelta} hyp`);
+      const suffix = bits.length ? ' · ' + bits.join(' · ') : '';
+      el.innerHTML = `<span class="live-dot"></span> Auto-refresh on · last check ${t}${suffix}`;
     }
     // Kick off polling
     pollTimer = setInterval(pollResearch, POLL_MS);

@@ -268,3 +268,17 @@
   .panel { margin: 12px 14px; padding: 14px; }
   .data-table { font-size: 11px; }
 }
+
+/* ── Champion age pill ──────────────────────────────────────────────────── */
+.age-pill {
+  margin-left: auto;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  border: 1px solid transparent;
+}
+.age-pill.fresh  { background: rgba(34,197,94,0.15);  color: #4ade80; border-color: rgba(34,197,94,0.4); }
+.age-pill.recent { background: rgba(148,163,184,0.15); color: #cbd5e1; border-color: rgba(148,163,184,0.3); }
+.age-pill.stale  { background: rgba(245,158,11,0.15); color: #fbbf24; border-color: rgba(245,158,11,0.4); }

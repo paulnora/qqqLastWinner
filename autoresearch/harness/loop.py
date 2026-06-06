@@ -126,6 +126,9 @@ def load_state() -> dict:
     }
 
 
+OUTPERF_MIN_RATIO_FLOOR = 1.0  # outperf champion must at least match QQQ in worst window
+
+
 def focus_metric(metrics: dict, focus: str) -> float:
     if not metrics or not metrics.get("ok"):
         return float("-inf")
@@ -134,6 +137,13 @@ def focus_metric(metrics: dict, focus: str) -> float:
     if focus == "sharpe":
         return metrics.get("mean_sharpe", 0.0)
     if focus == "outperf":
+        # Disqualify Pareto-corner freaks: high mean_outperf paired with
+        # min_ratio < 1.0 (i.e. losing to QQQ in the worst eval window) is
+        # not a usable strategy — it's just leverage on the bull windows.
+        # Returning -inf for such candidates makes any qualifying balanced
+        # strategy strictly preferable on this focus dim.
+        if metrics.get("min_ratio", 0.0) < OUTPERF_MIN_RATIO_FLOOR:
+            return float("-inf")
         return metrics.get("mean_outperf", 0.0)
     # "score" or "diverse" both use composite score
     return metrics.get("score", 0.0)

@@ -148,6 +148,26 @@ def harness_status() -> dict:
                 c["_diffs"] = diffs
                 c["_n_diffs"] = len(diffs)
                 c["_age"] = _age_from_label(c.get("label", ""))
+                # Generalization gap: in-sample outperf vs true holdout outperf.
+                # A large positive gap (IS >> OOS) flags overfitting.
+                cm = c.get("metrics") or {}
+                ho = cm.get("holdout") or {}
+                if ho.get("ok"):
+                    is_outperf = cm.get("mean_outperf", 0.0)
+                    oos_outperf = ho.get("mean_outperf", 0.0)
+                    c["_holdout"] = {
+                        "ok": True,
+                        "outperf": oos_outperf,
+                        "ret": ho.get("mean_return_pct", 0.0),
+                        "sharpe": ho.get("mean_sharpe", 0.0),
+                        "min_ratio": ho.get("min_ratio", 0.0),
+                        "gap": round(is_outperf - oos_outperf, 3),
+                        # holds up if OOS still beats QQQ (ratio >= 1) and the
+                        # gap isn't catastrophic
+                        "holds": oos_outperf >= 1.0,
+                    }
+                else:
+                    c["_holdout"] = {"ok": False}
                 # Headline metric — what this champion is actually being judged on
                 focus = c.get("focus", "score")
                 m = c.get("metrics", {})

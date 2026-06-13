@@ -38,6 +38,15 @@ from autoresearch.prepare import (
 INITIAL_CAPITAL = 10_000.0
 RESULTS_FILE = os.path.join(os.path.dirname(__file__), "results.tsv")
 
+# ── Trading frictions (QQQ, conservative-realistic) ──────────────────────────
+# Charged to equity on every execution. A liquid ETF traded at the open:
+#   commission ~1bp, slippage ~2bp per leg  -> ~6bp round-trip
+#   short borrow ~50bp annual on proceeds held
+# At ~60 trades/yr this is ~3-4%/yr of drag — enough to kill free-churn edges.
+COMMISSION_BPS = 1.0
+SLIPPAGE_BPS = 2.0
+BORROW_BPS_ANNUAL = 50.0
+
 # ── Evaluation windows ───────────────────────────────────────────────────────
 # We test across multiple timeframes (1990-present) to ensure the strategy
 # "greatly beats holding QQQ at ANY given timeframe."
@@ -51,17 +60,33 @@ def _latest_data_date() -> str:
 
 _LIVE_END = _latest_data_date()
 
+# ── In-sample / holdout split ────────────────────────────────────────────────
+# The search optimizes ONLY on in-sample windows (everything through IS_END).
+# Data after IS_END is a true holdout the scorer never sees — champions are
+# evaluated on it for reporting, never selected on it. The gap between
+# in-sample and holdout performance IS the overfitting measurement.
+#
+# To re-freeze the holdout later (e.g. once a year), bump IS_END forward and
+# rebaseline (--reset). Do NOT tune params while peeking at holdout results.
+IS_END = "2024-12-31"
+
+# In-sample windows: overlapping regimes from 1990 through IS_END.
 EVAL_WINDOWS = [
-    ("1990-01-02", _LIVE_END),       # Extended full period (~35 years -> today)
+    ("1990-01-02", IS_END),          # Extended full period (~35 years)
     ("1990-01-02", "1998-12-31"),    # Pre-QQQ era (NDX proxy only, ~9 years)
     ("1999-01-04", "2002-12-31"),    # Dot-com boom & crash
     ("2003-01-02", "2007-12-31"),    # Post-crash bull run (~5 years)
     ("2008-01-02", "2012-12-31"),    # Financial crisis & recovery (~5 years)
-    ("2013-01-02", _LIVE_END),       # Original full period -> today
+    ("2013-01-02", IS_END),          # Original full period
     ("2013-01-02", "2018-12-31"),    # First half (~6 years)
-    ("2019-01-02", _LIVE_END),       # Second half -> today (incl. COVID, 2022 bear, 2025-26)
+    ("2019-01-02", IS_END),          # Second half (incl. COVID, 2022 bear)
     ("2020-01-02", "2022-12-30"),    # COVID crash + recovery + bear
-    ("2023-01-03", _LIVE_END),       # Recent bull run -> today
+    ("2023-01-03", IS_END),          # Recent bull run through IS_END
+]
+
+# Holdout: the most recent data, never used in scoring/promotion.
+HOLDOUT_WINDOWS = [
+    ("2025-01-01", _LIVE_END),       # Out-of-sample: IS_END -> today
 ]
 
 # ── Criteria ─────────────────────────────────────────────────────────────────
@@ -100,6 +125,9 @@ def run_backtest(strategy, start_date: str, end_date: str, ticker: str = "QQQ"):
         trade_price="open",
         share_rounding="fractional",
         leverage_mode="1x",
+        commission_bps=COMMISSION_BPS,
+        slippage_bps=SLIPPAGE_BPS,
+        borrow_bps_annual=BORROW_BPS_ANNUAL,
     )
     return run_backtest_with_strategy(
         strategy=strategy,

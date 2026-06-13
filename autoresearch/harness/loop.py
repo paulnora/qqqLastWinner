@@ -45,7 +45,9 @@ sys.path.insert(0, ROOT_DIR)
 from autoresearch.harness.parametric_strategy import ITER31_DEFAULTS
 from autoresearch.harness.mutator import random_sample
 from autoresearch.harness.tested_set import TestedSet, total_combo_space
-from autoresearch.run_experiment import MIN_TRADES_PER_YEAR, MAX_TRADES_PER_YEAR
+from autoresearch.run_experiment import (
+    MIN_TRADES_PER_YEAR, MAX_TRADES_PER_YEAR, HOLDOUT_WINDOWS,
+)
 
 
 HARNESS_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -328,7 +330,42 @@ def evaluate(params: dict) -> dict:
         "sharpe": sharpe,
         "max_dd": max_dd,
         "summary": result.get("summary", {}),
+        # True out-of-sample metrics — evaluated but NEVER fed into score or
+        # any promotion decision. Surfaced so we can measure the generalization
+        # gap (in-sample mean_outperf vs holdout outperf).
+        "holdout": evaluate_holdout(),
     }
+
+
+def evaluate_holdout() -> dict:
+    """Evaluate the CURRENT candidate params (already written to CANDIDATE_FILE)
+    on the holdout windows only. Returns aggregate OOS metrics, or {ok: False}.
+    Never raises — holdout failure must not block an in-sample promotion."""
+    try:
+        from autoresearch.run_experiment import evaluate_strategy
+        result = evaluate_strategy(
+            "autoresearch.harness.parametric_strategy",
+            "ParametricStrategy",
+            windows=HOLDOUT_WINDOWS,
+        )
+        ok = [w for w in result["windows"] if "error" not in w]
+        if not ok:
+            return {"ok": False}
+        ratios = [w["outperformance_ratio"] for w in ok]
+        return {
+            "ok": True,
+            "mean_return_pct": round(sum(w["strat_return_pct"] for w in ok) / len(ok), 4),
+            "mean_sharpe": round(sum(w["sharpe"] for w in ok) / len(ok), 4),
+            "mean_outperf": round(sum(min(r, OUTPERF_CLIP) for r in ratios) / len(ratios), 4),
+            "min_ratio": round(min(ratios), 4),
+            "mean_max_dd_pct": round(sum(w["max_drawdown_pct"] for w in ok) / len(ok), 4),
+            "windows": {w["window"]: {
+                "ret": w["strat_return_pct"], "qqq": w["qqq_return_pct"],
+                "ratio": w["outperformance_ratio"], "sharpe": w["sharpe"],
+            } for w in ok},
+        }
+    except Exception:
+        return {"ok": False}
 
 
 def passes_gates(cand: dict) -> tuple:

@@ -19,6 +19,12 @@ class BacktestConfig:
     trade_price: PriceField = "open"          # Execute at t+1 open or close
     share_rounding: Rounding = "floor"        # How to round share quantities
     leverage_mode: LeverageMode = "3x"        # "3x" = TQQQ/SQQQ, "1x" = QQQ long/short
+    # Trading frictions — charged to cash (and therefore equity) at every
+    # execution. Default 0.0 preserves legacy frictionless behavior; callers
+    # that want realistic results (e.g. the research harness) set these.
+    commission_bps: float = 0.0               # per-leg commission, basis points of notional
+    slippage_bps: float = 0.0                 # per-leg slippage, basis points of notional
+    borrow_bps_annual: float = 0.0            # annual short-borrow cost, bps of short proceeds
 
 # -------------------------
 # Helper Functions
@@ -30,6 +36,19 @@ def _round_shares(x: float, mode: Rounding) -> float:
     if mode == "nearest":
         return float(np.round(x))
     return float(np.floor(max(x, 0.0)))  # Non-negative floor
+
+
+def _txn_cost(notional: float, cfg: "BacktestConfig") -> float:
+    """Per-leg transaction cost (commission + slippage) on a traded notional."""
+    return abs(notional) * (cfg.commission_bps + cfg.slippage_bps) / 10_000.0
+
+
+def _borrow_cost(proceeds: float, entry_date, exit_date, cfg: "BacktestConfig") -> float:
+    """Short-borrow cost accrued over the holding period of a short position."""
+    if cfg.borrow_bps_annual <= 0:
+        return 0.0
+    days = max((exit_date - entry_date).days, 0)
+    return abs(proceeds) * cfg.borrow_bps_annual / 10_000.0 * days / 365.25
 
 def _build_trade_record(
     symbol: str,
@@ -265,7 +284,8 @@ def run_backtest_with_strategy(
             sell_price = float(long_px.loc[date, cfg.trade_price])
             sell_value = shares[long_sym] * sell_price
             cash += sell_value
-            
+            cash -= _txn_cost(sell_value, cfg)
+
             if open_trades[long_sym] is not None:
                 trade = open_trades[long_sym]
                 profit = (sell_price - trade["entry_price"]) * trade["shares"]
@@ -294,7 +314,9 @@ def run_backtest_with_strategy(
                     # Net P&L = short_proceeds - cover_cost = profit
                     cash += trade["short_proceeds"]  # return the proceeds
                     cash -= cover_cost               # pay to buy back shares
-                    
+                    cash -= _txn_cost(cover_cost, cfg)
+                    cash -= _borrow_cost(trade["short_proceeds"], trade["entry_date"], date, cfg)
+
                     trade_log.append(_build_trade_record(
                         "QQQ", "SHORT", True, trade, date, cover_price,
                         profit, profit_pct, exec_dates, cfg.share_rounding
@@ -304,11 +326,12 @@ def run_backtest_with_strategy(
                 # 3x mode: SQQQ is a normal long position, sell it
                 sell_value = shares[short_sym] * cover_price
                 cash += sell_value
+                cash -= _txn_cost(sell_value, cfg)
                 if open_trades[short_sym] is not None:
                     trade = open_trades[short_sym]
                     profit = (cover_price - trade["entry_price"]) * trade["shares"]
                     profit_pct = profit / (trade["entry_price"] * trade["shares"])
-                    
+
                     trade_log.append(_build_trade_record(
                         short_sym, "LONG", False, trade, date, cover_price,
                         profit, profit_pct, exec_dates, cfg.share_rounding
@@ -330,6 +353,7 @@ def run_backtest_with_strategy(
             if actual_shares > 0:
                 trade_value = long_price * actual_shares
                 cash -= trade_value
+                cash -= _txn_cost(trade_value, cfg)
                 shares[long_sym] = actual_shares
                 open_trades[long_sym] = {
                     "symbol": long_sym,
@@ -349,6 +373,7 @@ def run_backtest_with_strategy(
                 short_proceeds = short_price * target_short_shares
                 # Don't add proceeds to cash yet — track them in the trade record.
                 # Equity = cash + short_proceeds - current_short_value
+                cash -= _txn_cost(short_proceeds, cfg)
                 shares[short_sym] = target_short_shares
                 open_trades[short_sym] = {
                     "symbol": short_sym,
@@ -364,6 +389,7 @@ def run_backtest_with_strategy(
                 if actual_shares > 0:
                     trade_value = short_price * actual_shares
                     cash -= trade_value
+                    cash -= _txn_cost(trade_value, cfg)
                     shares[short_sym] = actual_shares
                     open_trades[short_sym] = {
                         "symbol": short_sym,
@@ -393,6 +419,7 @@ def run_backtest_with_strategy(
         final_price = float(long_px.loc[final_date, cfg.trade_price])
         final_value = final_price * shares[long_sym]
         cash += final_value
+        cash -= _txn_cost(final_value, cfg)
         if open_trades[long_sym] is not None:
             trade = open_trades[long_sym]
             profit = (final_price - trade["entry_price"]) * trade["shares"]
@@ -414,6 +441,8 @@ def run_backtest_with_strategy(
                 profit_pct = profit / trade["short_proceeds"]
                 cash += trade["short_proceeds"]
                 cash -= cover_cost
+                cash -= _txn_cost(cover_cost, cfg)
+                cash -= _borrow_cost(trade["short_proceeds"], trade["entry_date"], final_date, cfg)
                 trade_log.append(_build_trade_record(
                     "QQQ", "SHORT", True, trade, final_date, final_price,
                     profit, profit_pct, exec_dates, cfg.share_rounding
@@ -421,6 +450,7 @@ def run_backtest_with_strategy(
         else:
             final_value = final_price * shares[short_sym]
             cash += final_value
+            cash -= _txn_cost(final_value, cfg)
             if open_trades[short_sym] is not None:
                 trade = open_trades[short_sym]
                 profit = (final_price - trade["entry_price"]) * trade["shares"]

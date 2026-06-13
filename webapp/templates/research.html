@@ -68,7 +68,7 @@
   <!-- ── Champion Pool ─────────────────────────────────────────────────────── -->
   <section class="panel">
     <h2>Champion Pool · {{ data.harness.champions|length }} active</h2>
-    <p class="panel-desc">Each champion is pinned to a different optimization focus. The harness samples from all 5 each iteration; promotions require both (a) beating the target champion on its focus dim and (b) Hamming distance ≥ 4 from every other champion to preserve diversity.</p>
+    <p class="panel-desc">Each champion is pinned to a different optimization focus. The harness samples from all 5 each iteration; promotions require both (a) beating the target champion on its focus dim and (b) Hamming distance ≥ 4 from every other champion to preserve diversity. <strong>All scoring uses in-sample data (1999→2024 only)</strong>; the HOLDOUT row on each card is 2025→today — never seen by the search. A large in-sample-minus-holdout <em>gap</em> means the champion is overfit. Net of realistic trading costs (~6bp round-trip + 50bp/yr borrow).</p>
 
     <div class="champion-grid">
       {% for c in data.harness.champions %}
@@ -106,6 +106,23 @@
           <div><span>Outperf</span><strong>{{ "%.2f"|format(m.mean_outperf) }}x</strong></div>
           <div><span>MinRatio</span><strong>{{ "%.3f"|format(m.min_ratio) }}</strong></div>
           <div><span>MaxDD</span><strong>{{ "%.1f"|format(m.mean_max_dd_pct) }}%</strong></div>
+        </div>
+
+        <div class="holdout-row {% if c._holdout.ok %}{{ 'holds' if c._holdout.holds else 'breaks' }}{% else %}na{% endif %}">
+          {% if c._holdout.ok %}
+          <div class="holdout-head">
+            <span class="holdout-tag">HOLDOUT 2025→now</span>
+            <span class="holdout-verdict">{{ '✓ generalizes' if c._holdout.holds else '✗ overfit' }}</span>
+          </div>
+          <div class="holdout-stats">
+            <span title="Out-of-sample outperformance vs QQQ">OOS {{ "%.2f"|format(c._holdout.outperf) }}x</span>
+            <span title="In-sample minus out-of-sample outperformance — large = overfit">gap {{ "%+.2f"|format(c._holdout.gap) }}</span>
+            <span title="Out-of-sample return">ret {{ "%+.1f"|format(c._holdout.ret) }}%</span>
+            <span title="Out-of-sample Sharpe">sh {{ "%.2f"|format(c._holdout.sharpe) }}</span>
+          </div>
+          {% else %}
+          <div class="holdout-head"><span class="holdout-tag">HOLDOUT</span><span class="holdout-verdict">— not yet scored</span></div>
+          {% endif %}
         </div>
 
         <div class="champion-diffs">

@@ -62,11 +62,38 @@ def _fetch_ohlcv(ticker: str) -> pd.DataFrame:
 
 
 def refresh_ticker(ticker: str) -> bool:
-    """Fetch latest OHLCV for ticker. Returns True on success."""
+    """Fetch latest OHLCV for ticker and MERGE with existing history.
+
+    Yahoo only returns QQQ from its 1999-03-10 inception, so a naive overwrite
+    destroys any pre-1999 NDX-proxy history that extends the backtest to 1990.
+    Instead we preserve rows older than the fetch and re-anchor them onto the
+    fresh adjusted-close basis (Yahoo's back-adjustment drifts as dividends
+    accrue), keeping the 1999 join seamless across refreshes. Returns True on
+    success.
+    """
     path = os.path.join(AUTORESEARCH_DIR, f"{ticker.lower()}_ohlcv.csv")
     try:
-        df = _fetch_ohlcv(ticker)
-        df.to_csv(path)
+        fresh = _fetch_ohlcv(ticker)
+        if os.path.exists(path):
+            existing = pd.read_csv(path, index_col=0, parse_dates=True)
+            existing.index = pd.to_datetime(existing.index).tz_localize(None).normalize()
+            join = fresh.index.min()
+            older = existing.loc[existing.index < join].copy()
+            if len(older) and join in existing.index and existing.loc[join, "close_adj"]:
+                # Re-anchor preserved history to the new basis so the boundary
+                # doesn't drift each refresh.
+                drift = float(fresh.loc[join, "close_adj"]) / float(existing.loc[join, "close_adj"])
+                for col in ("open_adj", "high_adj", "low_adj", "close_adj"):
+                    if col in older.columns:
+                        older[col] = (older[col] * drift).round(6)
+                older = older[fresh.columns]  # align column order/set
+                combined = pd.concat([older, fresh])
+                combined = combined[~combined.index.duplicated(keep="last")].sort_index()
+            else:
+                combined = fresh
+        else:
+            combined = fresh
+        combined.to_csv(path)
         return True
     except Exception:
         return False

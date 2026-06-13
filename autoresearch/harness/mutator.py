@@ -84,6 +84,14 @@ SPEC = {
     "subL_zscore_period":  (126,  378,  21),
     "subL_zscore_high":    (1.0,  3.0,  0.25),
     "subL_zscore_low":     (-2.5, 0.0,  0.25),
+
+    # --- Sub-M: long-horizon return reversal (kept hypotheses: rho up to -0.32)
+    "enable_M":            (0,    1,    1),
+    "subM_lookback":       (252,  1260, 63),    # 1yr .. 5yr trailing log-return
+    "subM_ret_high":       (0.4,  1.2,  0.05),
+    "subM_ret_low":        (-0.6, 0.0,  0.05),
+    "subM_z_period":       (252,  756,  63),
+    "subM_z_high":         (1.0,  3.0,  0.25),
 }
 
 
@@ -157,6 +165,7 @@ SUB_THRESHOLD_PARAMS = {
     "enable_J": ["wr_period", "wr_low", "wr_high", "obv_sma_period"],
     "enable_K": ["don_period", "don_pos", "aroon_period"],
     "enable_L": ["subL_zscore_period", "subL_zscore_high", "subL_zscore_low"],
+    "enable_M": ["subM_lookback", "subM_ret_high", "subM_ret_low", "subM_z_period", "subM_z_high"],
 }
 
 

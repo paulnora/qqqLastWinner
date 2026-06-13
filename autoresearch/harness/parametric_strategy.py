@@ -103,6 +103,23 @@ ITER31_DEFAULTS = {
     "subL_zscore_period": 252,
     "subL_zscore_high": 2.0,
     "subL_zscore_low": -1.5,
+
+    # --- Sub-M: long-horizon return reversal (kept hypothesis: STRONGEST family) -
+    # ~12 independent papers (Fama-French 1988, Poterba-Summers 1988, Balvers/Wu,
+    # long-run reversal literature): the multi-year trailing log return NEGATIVELY
+    # predicts forward 63d return (holdout rho -0.28 to -0.32, p=0.001). Nothing in
+    # subs A-L looks past 252 days, so this entire signal family was unrepresented.
+    # Strategy interpretation (multi-condition):
+    #   overextended = (long-horizon log-return > ret_high) AND (long z-score > z_high)
+    #     -> in bull, abstain to CASH (anticipate reversion of the multi-year run-up)
+    #   depressed = long-horizon log-return < ret_low
+    #     -> vote LONG even outside bull (anticipate post-washout rebound)
+    "enable_M": 0,
+    "subM_lookback": 504,          # ~2yr trailing log-return window (strongest)
+    "subM_ret_high": 0.80,         # log-return above this = overextended
+    "subM_ret_low": -0.30,         # log-return below this = deeply depressed
+    "subM_z_period": 504,          # z-score window for overextension confirmation
+    "subM_z_high": 1.5,            # z-score threshold confirming overextension
 }
 
 
@@ -426,19 +443,42 @@ class ParametricStrategy(BaseStrategy):
             except Exception:
                 sigL = pd.Series(0, index=data.index)
 
-        # ─── Ensemble vote (12 subs total; disabled subs contribute 0) ────────
+        # Sub-M: long-horizon return reversal (from kept hypotheses, strongest family)
+        # Overextended multi-year run-up -> cash (reversion); deeply depressed
+        # multi-year return -> long (post-washout rebound).
+        sigM = pd.Series(0, index=data.index)
+        if int(P["enable_M"]) == 1:
+            try:
+                lb = int(P["subM_lookback"])
+                logc = np.log(full.clip(lower=1e-9))
+                lhret = (logc - logc.shift(lb)).reindex(data.index)
+                zp = int(P["subM_z_period"])
+                z_mean = full.rolling(zp).mean().reindex(data.index)
+                z_std = full.rolling(zp).std().reindex(data.index)
+                zlong = ((close - z_mean) / z_std.replace(0, np.nan)).fillna(0)
+                overext = (lhret > float(P["subM_ret_high"])) & (zlong > float(P["subM_z_high"]))
+                depressed = lhret < float(P["subM_ret_low"])
+                sigM[in_bull & ~overext.fillna(False)] = 1     # bull, not stretched -> long
+                sigM[depressed.fillna(False)] = 1              # multi-year washout -> long
+                sigM = apply_bear(sigM)
+            except Exception:
+                sigM = pd.Series(0, index=data.index)
+
+        # ─── Ensemble vote (13 subs total; disabled subs contribute 0) ────────
         vote_long = ((sigA == 1).astype(int) + (sigB == 1).astype(int)
                      + (sigC == 1).astype(int) + (sigD == 1).astype(int)
                      + (sigE == 1).astype(int) + (sigF == 1).astype(int)
                      + (sigG == 1).astype(int) + (sigH == 1).astype(int)
                      + (sigI == 1).astype(int) + (sigJ == 1).astype(int)
-                     + (sigK == 1).astype(int) + (sigL == 1).astype(int))
+                     + (sigK == 1).astype(int) + (sigL == 1).astype(int)
+                     + (sigM == 1).astype(int))
         vote_short = ((sigA == -1).astype(int) + (sigB == -1).astype(int)
                       + (sigC == -1).astype(int) + (sigD == -1).astype(int)
                       + (sigE == -1).astype(int) + (sigF == -1).astype(int)
                       + (sigG == -1).astype(int) + (sigH == -1).astype(int)
                       + (sigI == -1).astype(int) + (sigJ == -1).astype(int)
-                      + (sigK == -1).astype(int) + (sigL == -1).astype(int))
+                      + (sigK == -1).astype(int) + (sigL == -1).astype(int)
+                      + (sigM == -1).astype(int))
 
         signals = pd.Series(0, index=data.index)
         signals[vote_long >= int(P["vote_long"])] = 1

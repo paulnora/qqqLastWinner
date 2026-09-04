@@ -193,3 +193,20 @@ Thumbs.db
 *.lnk
 
 backtest_outputs/
+
+# ── Research harness runtime & backups (generated, not source) ──────────────
+# state.json / current_params.json already covered by *.json above;
+# harness.out.log by *.log. These cover the rest of the churn.
+# (No inline comments below — git treats them as part of the pattern.)
+# Append-only ledgers & logs (adversarial, hypothesis, monitoring, harness):
+*.jsonl
+*.pid
+# Timestamped state / log snapshots & backups:
+state.json.*
+log.jsonl.*
+# Data backups like QQQ.csv.pre-refresh-bak (real *.csv stay tracked):
+*.csv.*
+autoresearch/harness/heartbeat.txt
+autoresearch/harness/tested.hashes
+autoresearch/harness/snapshots/
+hypothesis_search/seen_papers.txt

@@ -53,8 +53,22 @@ def save_candidate(label: str, payload: dict) -> str:
 
 
 def attempted_failure_windows(limit: Optional[int] = None) -> set[str]:
-    """Set of windows the Breaker has already exploited; helps avoid repeats."""
+    """Set of windows the Breaker has already exploited; helps avoid repeats.
+
+    Normalizes ``failure_window`` to the canonical ``"<start> to <end>"``
+    string form. Older rows stored it as a string; newer rows store a
+    ``[start, end]`` list, which is unhashable and must be joined.
+    """
     rows = load_all()
     if limit:
         rows = rows[-limit:]
-    return {r.get("failure_window") for r in rows if r.get("failure_window")}
+    out: set[str] = set()
+    for r in rows:
+        fw = r.get("failure_window")
+        if not fw:
+            continue
+        if isinstance(fw, (list, tuple)):
+            out.add(f"{fw[0]} to {fw[1]}")
+        else:
+            out.add(fw)
+    return out
